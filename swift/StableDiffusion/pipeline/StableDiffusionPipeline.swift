@@ -65,7 +65,7 @@ public struct StableDiffusionPipeline {
     ///   - progressHandler: Callback to perform after each step, stops on receiving false response
     /// - Returns: An array of `imageCount` optional images.
     ///            The images will be nil if safety checks were performed and found the result to be un-safe
-   public func generateImages(
+    public mutating func generateImages(
 		prompt: String,
 		negativePrompt: String = "",
 		imageCount: Int = 1,
