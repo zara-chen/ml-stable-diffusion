@@ -60,85 +60,89 @@ public struct StableDiffusionPipeline {
     ///   - stepCount: Number of inference steps to perform
     ///   - imageCount: Number of samples/images to generate for the input prompt
     ///   - seed: Random seed which
+    ///   - guidanceScale: For classifier guidance
     ///   - disableSafety: Safety checks are only performed if `self.canSafetyCheck && !disableSafety`
     ///   - progressHandler: Callback to perform after each step, stops on receiving false response
     /// - Returns: An array of `imageCount` optional images.
     ///            The images will be nil if safety checks were performed and found the result to be un-safe
-    public func generateImages(
-        prompt: String,
-        imageCount: Int = 1,
-        stepCount: Int = 50,
-        seed: Int = 0,
-        disableSafety: Bool = false,
-        progressHandler: (Progress) -> Bool = { _ in true }
-    ) throws -> [CGImage?] {
-
-        // Encode the input prompt as well as a blank unconditioned input
-        let promptEmbedding = try textEncoder.encode(prompt)
-        let blankEmbedding = try textEncoder.encode("")
-
-        // Convert to Unet hidden state representation
-        let concatEmbedding = MLShapedArray<Float32>(
-            concatenating: [blankEmbedding, promptEmbedding],
-            alongAxis: 0
-        )
-
-        let hiddenStates = toHiddenStates(concatEmbedding)
-
-        /// Setup schedulers
-        let scheduler = (0..<imageCount).map { _ in Scheduler(stepCount: stepCount) }
-        let stdev = scheduler[0].initNoiseSigma
-
-        // Generate random latent samples from specified seed
-        var latents = generateLatentSamples(imageCount, stdev: stdev, seed: seed)
-
-        // De-noising loop
-        for (step,t) in scheduler[0].timeSteps.enumerated() {
-
-            // Expand the latents for classifier-free guidance
-            // and input to the Unet noise prediction model
-            let latentUnetInput = latents.map {
-                MLShapedArray<Float32>(concatenating: [$0, $0], alongAxis: 0)
-            }
-
-            // Predict noise residuals from latent samples
-            // and current time step conditioned on hidden states
-            var noise = try unet.predictNoise(
-                latents: latentUnetInput,
-                timeStep: t,
-                hiddenStates: hiddenStates
-            )
-
-            noise = performGuidance(noise)
-
-            // Have the scheduler compute the previous (t-1) latent
-            // sample given the predicted noise and current sample
-            for i in 0..<imageCount {
-                latents[i] = scheduler[i].step(
-                    output: noise[i],
-                    timeStep: t,
-                    sample: latents[i]
-                )
-            }
-
-            // Report progress
-            let progress = Progress(
-                pipeline: self,
-                prompt: prompt,
-                step: step,
-                stepCount: stepCount,
-                currentLatentSamples: latents,
-                isSafetyEnabled: canSafetyCheck && !disableSafety
-            )
-            if !progressHandler(progress) {
-                // Stop if requested by handler
-                return []
-            }
-        }
-
-        // Decode the latent samples to images
-        return try decodeToImages(latents, disableSafety: disableSafety)
-    }
+   public func generateImages(
+		prompt: String,
+		negativePrompt: String = "",
+		imageCount: Int = 1,
+		stepCount: Int = 50,
+		seed: Int = 0,
+		guidanceScale: Float = 7.5,
+		disableSafety: Bool = false,
+		progressHandler: (Progress) -> Bool = { _ in true }
+	) throws -> [CGImage?] {
+		
+		// Encode the input prompt and negative prompt, as well as a blank unconditioned input
+		let promptEmbedding = try textEncoder.encode(prompt)
+		let negativePromptEmbedding = try textEncoder.encode(negativePrompt)
+		//		let blankEmbedding = try textEncoder.encode("")
+		
+		// Concatenate the prompt and negative prompt embeddings
+		let concatEmbedding = MLShapedArray<Float32>(
+			concatenating: [negativePromptEmbedding, promptEmbedding],
+			alongAxis: 0
+		)
+		
+		let hiddenStates = toHiddenStates(concatEmbedding)
+		
+		/// Setup schedulers
+		let scheduler = (0..<imageCount).map { _ in Scheduler(stepCount: stepCount) }
+		let stdev = scheduler[0].initNoiseSigma
+		
+		// Generate random latent samples from specified seed
+		var latents = generateLatentSamples(imageCount, stdev: stdev, seed: seed)
+		
+		// De-noising loop
+		for (step,t) in scheduler[0].timeSteps.enumerated() {
+			
+			// Expand the latents for classifier-free guidance
+			// and input to the Unet noise prediction model
+			let latentUnetInput = latents.map {
+				MLShapedArray<Float32>(concatenating: [$0, $0], alongAxis: 0)
+			}
+			
+			// Predict noise residuals from latent samples
+			// and current time step conditioned on hidden states
+			var noise = try unet.predictNoise(
+				latents: latentUnetInput,
+				timeStep: t,
+				hiddenStates: hiddenStates
+			)
+			
+			noise = performGuidance(noise, guidanceScale: guidanceScale)
+			
+			// Have the scheduler compute the previous (t-1) latent
+			// sample given the predicted noise and current sample
+			for i in 0..<imageCount {
+				latents[i] = scheduler[i].step(
+					output: noise[i],
+					timeStep: t,
+					sample: latents[i]
+				)
+			}
+			
+			// Report progress
+			let progress = Progress(
+				pipeline: self,
+				prompt: prompt,
+				step: step,
+				stepCount: stepCount,
+				currentLatentSamples: latents,
+				isSafetyEnabled: canSafetyCheck && !disableSafety
+			)
+			if !progressHandler(progress) {
+				// Stop if requested by handler
+				return []
+			}
+		}
+		
+		// Decode the latent samples to images
+		return try decodeToImages(latents, disableSafety: disableSafety)
+	}
 
     func generateLatentSamples(_ count: Int, stdev: Float, seed: Int) -> [MLShapedArray<Float32>] {
         var sampleShape = unet.latentSampleShape
