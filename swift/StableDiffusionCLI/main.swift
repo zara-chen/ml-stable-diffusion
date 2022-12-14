@@ -66,7 +66,7 @@ struct StableDiffusionSample: ParsableCommand {
 
         log("Loading resources and creating pipeline\n")
         log("(Note: This can take a while the first time using these resources)\n")
-        var pipeline = try StableDiffusionPipeline(resourcesAt: resourceURL,
+        let pipeline = try StableDiffusionPipeline(resourcesAt: resourceURL,
                                                    configuration: config,
                                                    disableSafety: disableSafety)
 

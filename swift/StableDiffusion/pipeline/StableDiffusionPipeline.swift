@@ -65,7 +65,7 @@ public struct StableDiffusionPipeline {
     ///   - progressHandler: Callback to perform after each step, stops on receiving false response
     /// - Returns: An array of `imageCount` optional images.
     ///            The images will be nil if safety checks were performed and found the result to be un-safe
-    public mutating func generateImages(
+    public func generateImages(
 		prompt: String,
 		negativePrompt: String = "",
 		imageCount: Int = 1,
@@ -77,8 +77,6 @@ public struct StableDiffusionPipeline {
 	) throws -> [CGImage?] {
 		
 		// Encode the input prompt and negative prompt, as well as a blank unconditioned input
-        self.guidanceScale = guidanceScale
-        
 		let promptEmbedding = try textEncoder.encode(prompt)
 		let negativePromptEmbedding = try textEncoder.encode(negativePrompt)
 		//		let blankEmbedding = try textEncoder.encode("")
@@ -173,11 +171,32 @@ public struct StableDiffusionPipeline {
         }
         return states
     }
-
+    
+    func performGuidance(_ noise: [MLShapedArray<Float32>], guidanceScale scale: Float) -> [MLShapedArray<Float32>] {
+        noise.map { performGuidance($0, guidanceScale: scale) }
+    }
+    
     func performGuidance(_ noise: [MLShapedArray<Float32>]) -> [MLShapedArray<Float32>] {
         noise.map { performGuidance($0) }
     }
 
+    func performGuidance(_ noise: MLShapedArray<Float32>, guidanceScale scale: Float) -> MLShapedArray<Float32> {
+
+        let blankNoiseScalars = noise[0].scalars
+        let textNoiseScalars = noise[1].scalars
+
+        var resultScalars =  blankNoiseScalars
+
+        for i in 0..<resultScalars.count {
+            // unconditioned + guidance*(text - unconditioned)
+            resultScalars[i] += scale*(textNoiseScalars[i]-blankNoiseScalars[i])
+        }
+
+        var shape = noise.shape
+        shape[0] = 1
+        return MLShapedArray<Float32>(scalars: resultScalars, shape: shape)
+    }
+    
     func performGuidance(_ noise: MLShapedArray<Float32>) -> MLShapedArray<Float32> {
 
         let blankNoiseScalars = noise[0].scalars
