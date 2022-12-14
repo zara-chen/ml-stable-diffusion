@@ -77,6 +77,8 @@ public struct StableDiffusionPipeline {
 	) throws -> [CGImage?] {
 		
 		// Encode the input prompt and negative prompt, as well as a blank unconditioned input
+        self.guidanceScale = guidanceScale
+        
 		let promptEmbedding = try textEncoder.encode(prompt)
 		let negativePromptEmbedding = try textEncoder.encode(negativePrompt)
 		//		let blankEmbedding = try textEncoder.encode("")
@@ -113,7 +115,7 @@ public struct StableDiffusionPipeline {
 				hiddenStates: hiddenStates
 			)
 			
-			noise = performGuidance(noise, guidanceScale: guidanceScale)
+			noise = performGuidance(noise)
 			
 			// Have the scheduler compute the previous (t-1) latent
 			// sample given the predicted noise and current sample
